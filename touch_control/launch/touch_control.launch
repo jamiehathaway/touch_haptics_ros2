@@ -1,0 +1,8 @@
+<launch>
+  <node name="touch_control" pkg="touch_control" type="touch_control" output="screen">
+    <!-- <param name="device_name" value="" /> --> <!-- If unset/blank the "default device" is used -->
+    <!-- <param name="scheduler_rate" value="1000" /> --> <!-- Can be either 500 or 1000 -->
+    <param name="prefix" value="touch_" />
+    <!-- <param name="publish_joint_states" value="true" /> -->
+  </node>
+</launch>
