@@ -151,7 +151,6 @@ class TouchControlNode : public rclcpp::Node
   public:
     TouchControlNode()
         : rclcpp::Node("touch_control")
-
     {
         device_name_ = declare_parameter<std::string>("device_name", "");
         scheduler_rate_hz_ = declare_parameter<int>("scheduler_rate", 1000);
@@ -181,7 +180,7 @@ class TouchControlNode : public rclcpp::Node
         // Do some initial reads from the device because the initial values are
         // sometimes all over the place
         for (int i = 0; i < 10; ++i) {
-            scheduler_->schedule_synchronous([&]() {
+            scheduler_->schedule_synchronous([this]() {
                 hd::ScopedFrame frame(*device_);
                 device_->joint_angles_current();
             });

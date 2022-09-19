@@ -289,10 +289,10 @@ Scheduler::Scheduler()
 }
 
 Scheduler::Scheduler(unsigned scheduler_rate_hz)
-    : rate_hz_(scheduler_rate_hz)
+    : rate_hz_(0)
     , is_running_(false)
 {
-    set_rate(rate_hz_);
+    set_rate(scheduler_rate_hz);
 }
 
 Scheduler::~Scheduler()
