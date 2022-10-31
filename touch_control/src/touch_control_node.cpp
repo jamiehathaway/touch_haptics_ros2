@@ -37,13 +37,16 @@
 
 #include "rclcpp/rclcpp.hpp"
 
+#include <range/v3/view/zip.hpp>
+
 #include <boost/circular_buffer.hpp>
+#include <boost/math/constants/constants.hpp>
 
 #include <thread>
 
-using namespace std::chrono_literals;
+namespace touch_control {
 
-constexpr double pi = 3.14159265358979323846;
+using boost::math::double_constants::pi;
 
 geometry_msgs::msg::Pose pose_msg(const hd::Transform& tf)
 {
@@ -146,17 +149,19 @@ private:
     boost::circular_buffer<T> x_;
 };
 
-class TouchControlNode : public rclcpp::Node
+class DeviceController
 {
-  public:
-    TouchControlNode()
-        : rclcpp::Node("touch_control")
+public:
+    DeviceController(rclcpp::Node* node,
+                     const std::string& device_name,
+                     const std::string& prefix,
+                     int scheduler_rate_hz,
+                     bool publish_joint_states)
+        : node_(node)
+        , device_(device_name)
+        , filter_(scheduler_rate_hz)
+        , dt_(1.0 / scheduler_rate_hz)
     {
-        device_name_ = declare_parameter<std::string>("device_name", "");
-        scheduler_rate_hz_ = declare_parameter<int>("scheduler_rate", 1000);
-        auto prefix = declare_parameter<std::string>("prefix", "");
-        auto publish_joint_states = declare_parameter<bool>("publish_joint_states", false);
-
         // Prefix frame/joint names
         base_frame_name_ = prefix + "base";
         joint_names_ = {"waist", "shoulder", "elbow", "yaw", "pitch", "roll"};
@@ -164,91 +169,71 @@ class TouchControlNode : public rclcpp::Node
         for (auto& n : joint_names_)
             n = prefix + n;
 
-        filter_ = std::make_unique<ButterworthLowpassFilter3<hd::Vector6d>>(scheduler_rate_hz_, hd::Vector6d::Zero());
-        device_ = std::make_unique<hd::Device>(device_name_);
-        scheduler_ = std::make_unique<hd::Scheduler>(scheduler_rate_hz_);
-
-        pub_pose_ = create_publisher<geometry_msgs::msg::PoseStamped>("pose_stylus_current", rclcpp::SensorDataQoS());
-        pub_twist_ = create_publisher<geometry_msgs::msg::TwistStamped>("twist_stylus_current", rclcpp::SensorDataQoS());
-        pub_button_ = create_publisher<touch_msgs::msg::ButtonEvent>("button_event", rclcpp::ServicesQoS()); // Reliable QoS profile here
+        std::string ns = device_name.empty() ? "" : device_name + "/";
+        pub_pose_ = node->create_publisher<geometry_msgs::msg::PoseStamped>(ns + "pose_stylus_current", rclcpp::SensorDataQoS());
+        pub_twist_ = node->create_publisher<geometry_msgs::msg::TwistStamped>(ns + "twist_stylus_current", rclcpp::SensorDataQoS());
+        pub_button_ = node->create_publisher<touch_msgs::msg::ButtonEvent>(ns + "button_event", rclcpp::ServicesQoS()); // Reliable QoS profile here
 
         if (publish_joint_states)
-            pub_joints_ = create_publisher<sensor_msgs::msg::JointState>("joint_states", rclcpp::SensorDataQoS());
-
-        scheduler_->start();
-
-        // Do some initial reads from the device because the initial values are
-        // sometimes all over the place
-        for (int i = 0; i < 10; ++i) {
-            scheduler_->schedule_synchronous([this]() {
-                hd::ScopedFrame frame(*device_);
-                device_->joint_angles_current();
-            });
-            std::this_thread::sleep_for(2ms);
-        }
-
-        // Continuously publish device state from the "haptics loop" thread
-        scheduler_->schedule_asynchronous([this]() { return publish_state(); });
+            pub_joints_ = node->create_publisher<sensor_msgs::msg::JointState>(ns + "joint_states", rclcpp::SensorDataQoS());
     }
 
-    bool publish_state()
+    void publish_state()
     {
-        hd::ScopedFrame frame(*device_);
-
-        auto now = get_clock()->now();
-        double dt = 1.0 / scheduler_rate_hz_;
+        hd::ScopedFrame frame(device_);
+        auto t_now = node_->now();
 
         // Joint angles
-        hd::Vector6d joint_position = device_->joint_angles_current();
+        hd::Vector6d joint_position = device_.joint_angles_current();
 
         // Joint velocities: compute from joint angles because the haptic
         // device API is buggy and just returns zeros
         hd::Vector6d joint_velocity = hd::Vector6d::Zero();
 
-        if (device_->inkwell_switch_current()) {
+        if (device_.inkwell_switch_current()) {
             // Reset filter and force zero velocity while stylus is placed in
-            // the inkwell, which triggers device calibration and likely
-            // discontinous jumps in position
-            filter_->reset(joint_velocity);
+            // the inkwell (this triggers device calibration and likely
+            // discontinous jumps in position)
+            filter_.reset(joint_velocity);
         } else {
             // Backward difference velocity approximation, low pass filtered
-            hd::Vector6d dq = joint_position - device_->joint_angles_last();
-            joint_velocity = filter_->update(dq / dt);
+            hd::Vector6d dq = joint_position - device_.joint_angles_last();
+            joint_velocity = filter_.update(dq / dt_);
         }
 
         // End-effector (stylus) transform seen wrt. device base frame
-        hd::Transform transform = device_->transform_current();
+        hd::Transform transform = device_.transform_current();
 
         // Compute Cartesian space velocities using the end-effector Jacobian
-        hd::Vector6d twist = device_->jacobian_current() * joint_velocity;
+        hd::Vector6d twist = device_.jacobian_current() * joint_velocity;
 
         // Button states
-        auto buttons_current = device_->buttons_current();
-        auto buttons_last = device_->buttons_last();
+        auto buttons_current = device_.buttons_current();
+        auto buttons_last = device_.buttons_last();
 
         // Publish if button states changed
         if (!buttons_last[0] && buttons_current[0]) {
-            touch_msgs::msg::ButtonEvent m_btn;
-            m_btn.button = touch_msgs::msg::ButtonEvent::BUTTON_GRAY;
-            m_btn.event = touch_msgs::msg::ButtonEvent::EVENT_PRESSED;
-            pub_button_->publish(m_btn);
+            auto m_btn = std::make_unique<touch_msgs::msg::ButtonEvent>();
+            m_btn->button = touch_msgs::msg::ButtonEvent::BUTTON_GRAY;
+            m_btn->event = touch_msgs::msg::ButtonEvent::EVENT_PRESSED;
+            pub_button_->publish(std::move(m_btn));
         } else if (buttons_last[0] && !buttons_current[0]) {
-            touch_msgs::msg::ButtonEvent m_btn;
-            m_btn.button = touch_msgs::msg::ButtonEvent::BUTTON_GRAY;
-            m_btn.event = touch_msgs::msg::ButtonEvent::EVENT_RELEASED;
-            pub_button_->publish(m_btn);
+            auto m_btn = std::make_unique<touch_msgs::msg::ButtonEvent>();
+            m_btn->button = touch_msgs::msg::ButtonEvent::BUTTON_GRAY;
+            m_btn->event = touch_msgs::msg::ButtonEvent::EVENT_RELEASED;
+            pub_button_->publish(std::move(m_btn));
         }
 
         if (!buttons_last[1] && buttons_current[1]) {
-            touch_msgs::msg::ButtonEvent m_btn;
-            m_btn.button = touch_msgs::msg::ButtonEvent::BUTTON_WHITE;
-            m_btn.event = touch_msgs::msg::ButtonEvent::EVENT_PRESSED;
-            pub_button_->publish(m_btn);
+            auto m_btn = std::make_unique<touch_msgs::msg::ButtonEvent>();
+            m_btn->button = touch_msgs::msg::ButtonEvent::BUTTON_WHITE;
+            m_btn->event = touch_msgs::msg::ButtonEvent::EVENT_PRESSED;
+            pub_button_->publish(std::move(m_btn));
         } else if (buttons_last[1] && !buttons_current[1]) {
-            touch_msgs::msg::ButtonEvent m_btn;
-            m_btn.button = touch_msgs::msg::ButtonEvent::BUTTON_WHITE;
-            m_btn.event = touch_msgs::msg::ButtonEvent::EVENT_RELEASED;
-            pub_button_->publish(m_btn);
+            auto m_btn = std::make_unique<touch_msgs::msg::ButtonEvent>();
+            m_btn->button = touch_msgs::msg::ButtonEvent::BUTTON_WHITE;
+            m_btn->event = touch_msgs::msg::ButtonEvent::EVENT_RELEASED;
+            pub_button_->publish(std::move(m_btn));
         }
 
         // Rotate such that X points forward, Y left and Z up, according to
@@ -260,55 +245,75 @@ class TouchControlNode : public rclcpp::Node
         // and scale translation to meters
         transform.translation() /= 1000;
 
-        geometry_msgs::msg::PoseStamped m_pose;
-        m_pose.header.frame_id = base_frame_name_;
-        m_pose.header.stamp = now;
-        m_pose.pose = pose_msg(transform);
-        pub_pose_->publish(m_pose);
+        auto m_pose = std::make_unique<geometry_msgs::msg::PoseStamped>();
+        m_pose->header.frame_id = base_frame_name_;
+        m_pose->header.stamp = t_now;
+        m_pose->pose = pose_msg(transform);
+        pub_pose_->publish(std::move(m_pose));
 
         // Scale linear part of twist to m/s
         twist.head<3>() /= 1000;
 
-        geometry_msgs::msg::TwistStamped m_twist;
-        m_twist.header.frame_id = base_frame_name_;
-        m_twist.header.stamp = now;
-        m_twist.twist = twist_msg(twist);
-        pub_twist_->publish(m_twist);
+        auto m_twist = std::make_unique<geometry_msgs::msg::TwistStamped>();
+        m_twist->header.frame_id = base_frame_name_;
+        m_twist->header.stamp = t_now;
+        m_twist->twist = twist_msg(twist);
+        pub_twist_->publish(std::move(m_twist));
 
-        if (publish_joint_states_) {
-            sensor_msgs::msg::JointState m_jnt;
-            m_jnt.header.stamp = now;
-            m_jnt.name = joint_names_;
-            std::copy(joint_position.data(), std::next(joint_position.data(), joint_position.size()), std::back_inserter(m_jnt.position));
-            std::copy(joint_velocity.data(), std::next(joint_velocity.data(), joint_velocity.size()), std::back_inserter(m_jnt.velocity));
-            pub_joints_->publish(m_jnt);
+        if (pub_joints_) {
+            auto m_jnt = std::make_unique<sensor_msgs::msg::JointState>();
+            m_jnt->header.stamp = t_now;
+            m_jnt->name = joint_names_;
+            std::copy(joint_position.data(), std::next(joint_position.data(), joint_position.size()), std::back_inserter(m_jnt->position));
+            std::copy(joint_velocity.data(), std::next(joint_velocity.data(), joint_velocity.size()), std::back_inserter(m_jnt->velocity));
+            pub_joints_->publish(std::move(m_jnt));
         }
-
-        // Do not re-schedule callback if shutdown
-        return rclcpp::ok();
     }
 
 private:
-    std::string device_name_;
-    int scheduler_rate_hz_;
-    std::string prefix_;
-    bool publish_joint_states_;
+    rclcpp::Node* node_;
+    hd::Device device_;
+    ButterworthLowpassFilter3<hd::Vector6d> filter_;
+    double dt_;
     std::string base_frame_name_;
     std::vector<std::string> joint_names_;
-    std::unique_ptr<ButterworthLowpassFilter3<hd::Vector6d>> filter_;
-    std::unique_ptr<hd::Device> device_;
-    std::unique_ptr<hd::Scheduler> scheduler_;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_pose_;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr pub_twist_;
     rclcpp::Publisher<touch_msgs::msg::ButtonEvent>::SharedPtr pub_button_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr pub_joints_;
 };
 
-int main(int argc, char* argv[])
+class TouchControlNode : public rclcpp::Node
 {
-    rclcpp::init(argc, argv);
-    auto node = std::make_shared<TouchControlNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-}
+public:
+    TouchControlNode(const rclcpp::NodeOptions& options)
+        : rclcpp::Node("touch_control", options)
+    {
+        auto device_names = declare_parameter<std::vector<std::string>>("device_names", {""});
+        auto prefixes = declare_parameter<std::vector<std::string>>("prefixes", {""});
+        auto scheduler_rate_hz = declare_parameter<int>("scheduler_rate", 1000);
+        auto publish_joint_states = declare_parameter<bool>("publish_joint_states", false);
+
+        for (auto [name, prefix] : ranges::views::zip(device_names, prefixes))
+            device_controllers_.emplace_back(this, name, prefix, scheduler_rate_hz, publish_joint_states);
+
+        // Continuously publish device states from the "haptics loop" thread
+        for (auto& dc : device_controllers_) {
+            scheduler_.schedule_asynchronous([&dc]() {
+                dc.publish_state();
+                return rclcpp::ok();
+            });
+        }
+
+        scheduler_.start(scheduler_rate_hz);
+    }
+
+private:
+    std::list<DeviceController> device_controllers_;
+    hd::Scheduler scheduler_;
+};
+
+} // namespace touch_control
+
+#include "rclcpp_components/register_node_macro.hpp"
+RCLCPP_COMPONENTS_REGISTER_NODE(touch_control::TouchControlNode)

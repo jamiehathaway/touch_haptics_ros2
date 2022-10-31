@@ -180,7 +180,7 @@ class Scheduler
 public:
     using handle_t = HDSchedulerHandle;
 
-    enum Priority
+    enum class Priority : HDushort
     {
         PRIORITY_MIN = HD_MIN_SCHEDULER_PRIORITY,
         PRIORITY_DEFAULT = HD_DEFAULT_SCHEDULER_PRIORITY,
@@ -199,19 +199,18 @@ private:
 
 public:
     Scheduler();
-    Scheduler(unsigned scheduler_rate_hz);
     ~Scheduler();
 
-    void set_rate(unsigned scheduler_rate_hz);
-    void start();
+    void start(unsigned desired_rate_hz);
     void stop();
+    bool is_running() const;
 
     void unschedule(handle_t handle);
     void unschedule_all();
 
     // Schedule a function to run in the scheduler thread and wait for completion
     template<typename F>
-    void schedule_synchronous(F callback, HDushort priority = PRIORITY_DEFAULT)
+    void schedule_synchronous(F callback, Priority priority = Priority::PRIORITY_DEFAULT)
     {
         schedule_synchronous(
             [](void* f) -> HDCallbackCode {
@@ -219,11 +218,11 @@ public:
                 return HD_CALLBACK_DONE;
             },
             &callback,
-            priority);
+            static_cast<HDushort>(priority));
     }
 
     template<typename F>
-    handle_t schedule_asynchronous(F&& callback, Priority priority = PRIORITY_DEFAULT)
+    handle_t schedule_asynchronous(F&& callback, Priority priority = Priority::PRIORITY_DEFAULT)
     {
         // Pass pointer to SchedOp as "user data" and use it from an intermediate
         // captureless lambda (which can be passed as a function pointer)
@@ -241,7 +240,7 @@ public:
                 }
             },
             &operations_.back(),
-            priority);
+            static_cast<HDushort>(priority));
         return operations_.back().handle;
     }
 
@@ -250,7 +249,6 @@ private:
     handle_t schedule_asynchronous(HDSchedulerCallback cb, void* data, HDushort prio);
 
 private:
-    unsigned rate_hz_;
     bool is_running_;
     std::list<SchedOp> operations_;
 };

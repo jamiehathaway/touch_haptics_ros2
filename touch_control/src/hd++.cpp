@@ -282,17 +282,8 @@ bool Device::calibration_ok() const
 }
 
 Scheduler::Scheduler()
-    : rate_hz_(0)
-    , is_running_(false)
+    : is_running_(false)
 {
-    set_rate(1000);
-}
-
-Scheduler::Scheduler(unsigned scheduler_rate_hz)
-    : rate_hz_(0)
-    , is_running_(false)
-{
-    set_rate(scheduler_rate_hz);
 }
 
 Scheduler::~Scheduler()
@@ -301,18 +292,13 @@ Scheduler::~Scheduler()
     unschedule_all();
 }
 
-void Scheduler::set_rate(unsigned scheduler_rate_hz)
-{
-    hdSetSchedulerRate(scheduler_rate_hz);
-    error_check();
-    rate_hz_ = scheduler_rate_hz;
-}
-
-void Scheduler::start()
+void Scheduler::start(unsigned desired_rate_hz)
 {
     if (is_running_)
         return;
 
+    hdSetSchedulerRate(desired_rate_hz);
+    error_check();
     hdStartScheduler();
     error_check();
     is_running_ = true;
@@ -325,6 +311,12 @@ void Scheduler::stop()
 
     hdStopScheduler();
     error_check();
+    is_running_ = false;
+}
+
+bool Scheduler::is_running() const
+{
+    return is_running_;
 }
 
 void Scheduler::unschedule(handle_t handle)
