@@ -34,14 +34,12 @@
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "touch_msgs/msg/button_event.hpp"
-
 #include "rclcpp/rclcpp.hpp"
+#include "rosidl_runtime_cpp/message_initialization.hpp"
 
 #include <range/v3/view/zip.hpp>
-
 #include <boost/circular_buffer.hpp>
 #include <boost/math/constants/constants.hpp>
-
 #include <thread>
 
 namespace touch_control {
@@ -50,7 +48,7 @@ using boost::math::double_constants::pi;
 
 geometry_msgs::msg::Pose pose_msg(const hd::Transform& tf)
 {
-    geometry_msgs::msg::Pose m;
+    geometry_msgs::msg::Pose m(rosidl_runtime_cpp::MessageInitialization::SKIP);
     m.position.x = tf.translation().x();
     m.position.y = tf.translation().y();
     m.position.z = tf.translation().z();
@@ -64,7 +62,7 @@ geometry_msgs::msg::Pose pose_msg(const hd::Transform& tf)
 
 geometry_msgs::msg::Twist twist_msg(const hd::Vector6d& twist)
 {
-    geometry_msgs::msg::Twist m;
+    geometry_msgs::msg::Twist m(rosidl_runtime_cpp::MessageInitialization::SKIP);
     m.linear.x = twist[0];
     m.linear.y = twist[1];
     m.linear.z = twist[2];
@@ -213,24 +211,24 @@ public:
 
         // Publish if button states changed
         if (!buttons_last[0] && buttons_current[0]) {
-            auto m_btn = std::make_unique<touch_msgs::msg::ButtonEvent>();
+            auto m_btn = std::make_unique<touch_msgs::msg::ButtonEvent>(rosidl_runtime_cpp::MessageInitialization::SKIP);
             m_btn->button = touch_msgs::msg::ButtonEvent::BUTTON_GRAY;
             m_btn->event = touch_msgs::msg::ButtonEvent::EVENT_PRESSED;
             pub_button_->publish(std::move(m_btn));
         } else if (buttons_last[0] && !buttons_current[0]) {
-            auto m_btn = std::make_unique<touch_msgs::msg::ButtonEvent>();
+            auto m_btn = std::make_unique<touch_msgs::msg::ButtonEvent>(rosidl_runtime_cpp::MessageInitialization::SKIP);
             m_btn->button = touch_msgs::msg::ButtonEvent::BUTTON_GRAY;
             m_btn->event = touch_msgs::msg::ButtonEvent::EVENT_RELEASED;
             pub_button_->publish(std::move(m_btn));
         }
 
         if (!buttons_last[1] && buttons_current[1]) {
-            auto m_btn = std::make_unique<touch_msgs::msg::ButtonEvent>();
+            auto m_btn = std::make_unique<touch_msgs::msg::ButtonEvent>(rosidl_runtime_cpp::MessageInitialization::SKIP);
             m_btn->button = touch_msgs::msg::ButtonEvent::BUTTON_WHITE;
             m_btn->event = touch_msgs::msg::ButtonEvent::EVENT_PRESSED;
             pub_button_->publish(std::move(m_btn));
         } else if (buttons_last[1] && !buttons_current[1]) {
-            auto m_btn = std::make_unique<touch_msgs::msg::ButtonEvent>();
+            auto m_btn = std::make_unique<touch_msgs::msg::ButtonEvent>(rosidl_runtime_cpp::MessageInitialization::SKIP);
             m_btn->button = touch_msgs::msg::ButtonEvent::BUTTON_WHITE;
             m_btn->event = touch_msgs::msg::ButtonEvent::EVENT_RELEASED;
             pub_button_->publish(std::move(m_btn));
@@ -245,7 +243,7 @@ public:
         // and scale translation to meters
         transform.translation() /= 1000;
 
-        auto m_pose = std::make_unique<geometry_msgs::msg::PoseStamped>();
+        auto m_pose = std::make_unique<geometry_msgs::msg::PoseStamped>(rosidl_runtime_cpp::MessageInitialization::SKIP);
         m_pose->header.frame_id = base_frame_name_;
         m_pose->header.stamp = t_now;
         m_pose->pose = pose_msg(transform);
@@ -254,14 +252,14 @@ public:
         // Scale linear part of twist to m/s
         twist.head<3>() /= 1000;
 
-        auto m_twist = std::make_unique<geometry_msgs::msg::TwistStamped>();
+        auto m_twist = std::make_unique<geometry_msgs::msg::TwistStamped>(rosidl_runtime_cpp::MessageInitialization::SKIP);
         m_twist->header.frame_id = base_frame_name_;
         m_twist->header.stamp = t_now;
         m_twist->twist = twist_msg(twist);
         pub_twist_->publish(std::move(m_twist));
 
         if (pub_joints_) {
-            auto m_jnt = std::make_unique<sensor_msgs::msg::JointState>();
+            auto m_jnt = std::make_unique<sensor_msgs::msg::JointState>(rosidl_runtime_cpp::MessageInitialization::SKIP);
             m_jnt->header.stamp = t_now;
             m_jnt->name = joint_names_;
             std::copy(joint_position.data(), std::next(joint_position.data(), joint_position.size()), std::back_inserter(m_jnt->position));
