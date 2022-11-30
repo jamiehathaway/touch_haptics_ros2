@@ -168,12 +168,12 @@ public:
             n = prefix + n;
 
         std::string ns = device_name.empty() ? "" : device_name + "/";
-        pub_pose_ = node->create_publisher<geometry_msgs::msg::PoseStamped>(ns + "pose_stylus_current", rclcpp::SensorDataQoS());
-        pub_twist_ = node->create_publisher<geometry_msgs::msg::TwistStamped>(ns + "twist_stylus_current", rclcpp::SensorDataQoS());
-        pub_button_ = node->create_publisher<touch_msgs::msg::ButtonEvent>(ns + "button_event", rclcpp::ServicesQoS()); // Reliable QoS profile here
+        pub_pose_ = node->create_publisher<geometry_msgs::msg::PoseStamped>(ns + "pose_stylus_current", 1);
+        pub_twist_ = node->create_publisher<geometry_msgs::msg::TwistStamped>(ns + "twist_stylus_current", 1);
+        pub_button_ = node->create_publisher<touch_msgs::msg::ButtonEvent>(ns + "button_event", 10);
 
         if (publish_joint_states)
-            pub_joints_ = node->create_publisher<sensor_msgs::msg::JointState>(ns + "joint_states", rclcpp::SensorDataQoS());
+            pub_joints_ = node->create_publisher<sensor_msgs::msg::JointState>(ns + "joint_states", 1);
     }
 
     void publish_state()
