@@ -18,7 +18,7 @@ def generate_launch_description():
                 namespace='touch',
                 parameters=[{
                     'device_names': ['left', 'right'],  # Device name (if left blank the "Default Device" is used)
-                    'prefixes': ['touch_left_', 'touch_right_'],  # Joint names prefix
+                    'prefixes': ['touch_left_', 'touch_right_'],  # Joint names prefix (one prefix for each device)
                     # 'scheduler_rate': 1000,  # Can be 500 or 1000 Hz (default: 1000)
                     # 'publish_joint_states': True,  # Publishes joint states if True (default: False)
                 }],
