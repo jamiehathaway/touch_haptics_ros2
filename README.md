@@ -9,9 +9,15 @@ ROS packages for interfacing with 3D Systems Touch haptic devices.
 - Up is +Y.
 - Toward user is +Z.
 
+
+## Driver / SDK download
+
+https://support.3dsystems.com/s/article/OpenHaptics-for-Linux-Developer-Edition-v34
+
+
 ## Ubuntu Jammy Docker container
 
-We have experienced issues with the Touch devices on Ubuntu Jammy (22.04). The 3D Systems drivers are not officially supported on Jammy. Thus we provide the means to run `touch_control` in a Docker container based on Ubuntu Focal (20.04) with ROS2 Foxy.
+We have experienced issues with the Touch devices on Ubuntu Jammy (22.04). The 3D Systems drivers are not officially supported on Jammy. Thus we provide the means to run `touch_control` nodes in a Docker container based on Ubuntu Focal (20.04) with ROS2 Foxy.
 
 The `docker/fastrtps_profile.xml` forces UDP communication (instead of shared memory) from inside the container.
 
