@@ -31,10 +31,10 @@ docker build -t touch-focal -f docker/Dockerfile .
 
 Run `Touch_Setup` configuration program (a Qt GUI application):
 ```
-docker run -e "DISPLAY=$DISPLAY" -v "$HOME/.Xauthority:/root/.Xauthority:ro" -v $HOME/.3dsystems:/root/.3dsystems --network host touch-focal Touch_Setup
+docker run -e "DISPLAY=$DISPLAY" -v "$HOME/.Xauthority:/root/.Xauthority:ro" -v $GTDD_HOME:/root/.3dsystems --network host touch-focal Touch_Setup
 ```
 
 Launch ROS2 nodes:
 ```
-docker run -it --network host -v $HOME/.3dsystems:/root/.3dsystems touch-focal ros2 launch touch_control two_devices.launch.py
+docker run -it --network host -v $GTDD_HOME:/root/.3dsystems touch-focal ros2 launch touch_control two_devices.launch.py
 ```
