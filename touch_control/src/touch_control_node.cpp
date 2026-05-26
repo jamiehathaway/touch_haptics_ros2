@@ -32,6 +32,7 @@
 
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
+#include "geometry_msgs/msg/wrench_stamped.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "touch_msgs/msg/button_event.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -163,6 +164,7 @@ public:
         // Prefix frame/joint names
         base_frame_name_ = prefix + "base";
         joint_names_ = {"waist", "shoulder", "elbow", "yaw", "pitch", "roll"};
+        wrench_cmd_ = hd::Vector6d::Zero();
 
         for (auto& n : joint_names_)
             n = prefix + n;
@@ -171,17 +173,38 @@ public:
         pub_pose_ = node->create_publisher<geometry_msgs::msg::PoseStamped>(ns + "pose_stylus_current", 1);
         pub_twist_ = node->create_publisher<geometry_msgs::msg::TwistStamped>(ns + "twist_stylus_current", 1);
         pub_button_ = node->create_publisher<touch_msgs::msg::ButtonEvent>(ns + "button_event", 10);
+        sub_wrench_cmds_ = node->create_subscription<geometry_msgs::msg::WrenchStamped>(
+            ns + "wrench_command",
+            rclcpp::SensorDataQoS(),
+            std::bind(&DeviceController::handle_wrench_command, this, std::placeholders::_1)
+        );
 
         if (publish_joint_states)
             pub_joints_ = node->create_publisher<sensor_msgs::msg::JointState>(ns + "joint_states", 1);
+
+        device_.set_force_enabled(true);
     }
 
-    void publish_state()
+    ~DeviceController()
+    {
+        device_.set_force_enabled(false);
+    }
+
+    void handle_wrench_command(const geometry_msgs::msg::WrenchStamped::UniquePtr wrench)
+    {
+        wrench_cmd_(0) = wrench->wrench.force.x;
+        wrench_cmd_(1) = wrench->wrench.force.y;
+        wrench_cmd_(2) = wrench->wrench.force.z;
+        wrench_cmd_(3) = wrench->wrench.torque.x;
+        wrench_cmd_(4) = wrench->wrench.torque.y;
+        wrench_cmd_(5) = wrench->wrench.torque.z;
+    }
+
+    void update_state()
     {
         hd::ScopedFrame frame(device_);
         auto t_now = node_->now();
 
-        // Joint angles
         hd::Vector6d joint_position = device_.joint_angles_current();
 
         // Joint velocities: compute from joint angles because the haptic
@@ -193,6 +216,7 @@ public:
             // the inkwell (this triggers device calibration and likely
             // discontinous jumps in position)
             filter_.reset(joint_velocity);
+            wrench_cmd_ = hd::Vector6d::Zero();
         } else {
             // Backward difference velocity approximation, low pass filtered
             hd::Vector6d dq = joint_position - device_.joint_angles_last();
@@ -201,9 +225,9 @@ public:
 
         // End-effector (stylus) transform seen wrt. device base frame
         hd::Transform transform = device_.transform_current();
-
-        // Compute Cartesian space velocities using the end-effector Jacobian
         hd::Vector6d twist = device_.jacobian_current() * joint_velocity;
+
+        device_.set_current_wrench(wrench_cmd_);
 
         // Button states
         auto buttons_current = device_.buttons_current();
@@ -275,10 +299,12 @@ private:
     double dt_;
     std::string base_frame_name_;
     std::vector<std::string> joint_names_;
+    hd::Vector6d wrench_cmd_;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_pose_;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr pub_twist_;
     rclcpp::Publisher<touch_msgs::msg::ButtonEvent>::SharedPtr pub_button_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr pub_joints_;
+    rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr sub_wrench_cmds_;
 };
 
 class TouchControlNode : public rclcpp::Node
@@ -298,7 +324,7 @@ public:
         // Continuously publish device states from the "haptics loop" thread
         for (auto& dc : device_controllers_) {
             scheduler_.schedule_asynchronous([&dc]() {
-                dc.publish_state();
+                dc.update_state();
                 return rclcpp::ok();
             });
         }

@@ -164,6 +164,17 @@ public:
     Vector6d joint_torque_last() const;
 
     /*!
+     * \brief Set the commanded wrench (force-feedback) of the end-effector.
+     *
+     * Sets the wrench, apparent at the end-effector, that the device should
+     * try to generate, limited to the maximum force capability of the device. 
+     * Has no effect if force feedback is not enabled on the haptic device side.
+     * 
+     * \note Should only be called from within a "haptics frame"!
+     */
+    void set_current_wrench(const Vector6d& wrench);
+
+    /*!
      * \brief Check whether the current calibration is OK.
      * \return True if the calibration is deemed OK, false otherwise.
      * \note Should only be called from within a "haptics frame"!

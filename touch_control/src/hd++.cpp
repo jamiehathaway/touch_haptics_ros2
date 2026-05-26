@@ -274,6 +274,11 @@ Vector6d Device::joint_torque_last() const
     return torque;
 }
 
+void Device::set_current_wrench(const Vector6d& wrench)
+{
+    hdSetDoublev(HD_CURRENT_FORCE, wrench.head<3>().data());
+}
+
 bool Device::calibration_ok() const
 {
     auto status = hdCheckCalibration();
