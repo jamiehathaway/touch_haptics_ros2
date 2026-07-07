@@ -211,17 +211,17 @@ public:
         // device API is buggy and just returns zeros
         hd::Vector6d joint_velocity = hd::Vector6d::Zero();
 
-        if (device_.inkwell_switch_current()) {
+        // if (device_.inkwell_switch_current()) {
             // Reset filter and force zero velocity while stylus is placed in
             // the inkwell (this triggers device calibration and likely
             // discontinous jumps in position)
-            filter_.reset(joint_velocity);
-            wrench_cmd_ = hd::Vector6d::Zero();
-        } else {
+            // filter_.reset(joint_velocity);
+            // wrench_cmd_ = hd::Vector6d::Zero();
+        // } else {
             // Backward difference velocity approximation, low pass filtered
-            hd::Vector6d dq = joint_position - device_.joint_angles_last();
-            joint_velocity = filter_.update(dq / dt_);
-        }
+        hd::Vector6d dq = joint_position - device_.joint_angles_last();
+        joint_velocity = filter_.update(dq / dt_);
+        // }
 
         // End-effector (stylus) transform seen wrt. device base frame
         hd::Transform transform = device_.transform_current();
