@@ -263,7 +263,7 @@ public:
                     return HD_CALLBACK_CONTINUE;
                 } else {
                     // remove op from scheduler list once it has ended (the callback returned false)
-                    op->scheduler->operations_.remove_if([&op](const auto& other) { return op->handle = other.handle; });
+                    op->scheduler->operations_.remove_if([op](const auto& other) { return op->handle == other.handle; });
                     return HD_CALLBACK_DONE;
                 }
             },

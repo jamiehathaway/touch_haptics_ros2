@@ -445,8 +445,9 @@ public:
 
         // Continuously publish device states from the "haptics loop" thread
         for (auto& dc : device_controllers_) {
-            scheduler_.schedule_asynchronous([&dc]() {
-                dc.update_state();
+            auto* controller = &dc;
+            scheduler_.schedule_asynchronous([controller]() {
+                controller->update_state();
                 return rclcpp::ok();
             });
         }
