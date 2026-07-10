@@ -31,7 +31,10 @@
 #include "hd++.h"
 
 #include <iomanip>
+#include <iterator>
 #include <sstream>
+#include <stdexcept>
+#include <utility>
 
 namespace hd {
 
@@ -124,6 +127,32 @@ void Device::set_force_enabled(bool enable)
         hdEnable(HD_FORCE_OUTPUT);
     else
         hdDisable(HD_FORCE_OUTPUT);
+
+    error_check();
+}
+
+HDint Device::supported_calibration_styles() const
+{
+    make_current();
+    HDint styles = 0;
+    hdGetIntegerv(HD_CALIBRATION_STYLE, &styles);
+    error_check();
+    return styles;
+}
+
+HDint Device::calibration_status() const
+{
+    make_current();
+    auto status = hdCheckCalibration();
+    error_check();
+    return static_cast<HDint>(status);
+}
+
+void Device::update_calibration(HDint style)
+{
+    make_current();
+    hdUpdateCalibration(style);
+    error_check();
 }
 
 std::array<bool, 4> Device::buttons_current() const
@@ -281,9 +310,7 @@ void Device::set_current_wrench(const Vector6d& wrench)
 
 bool Device::calibration_ok() const
 {
-    auto status = hdCheckCalibration();
-    error_check();
-    return (status == HD_CALIBRATION_OK);
+    return (calibration_status() == HD_CALIBRATION_OK);
 }
 
 Scheduler::Scheduler()

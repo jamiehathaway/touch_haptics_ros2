@@ -34,8 +34,10 @@
 
 #include <Eigen/Geometry>
 
+#include <array>
 #include <functional>
 #include <list>
+#include <string>
 
 namespace hd {
 
@@ -66,6 +68,21 @@ public:
 
     void make_current() const;
     void set_force_enabled(bool enable);
+    /*!
+     * \brief Get the supported calibration styles as reported by the device.
+     * \note Should only be called from within a "haptics frame"!
+     */
+    HDint supported_calibration_styles() const;
+    /*!
+     * \brief Get the current calibration status.
+     * \note Should only be called from within a "haptics frame"!
+     */
+    HDint calibration_status() const;
+    /*!
+     * \brief Request a calibration update using the given style.
+     * \note Should only be called from within a "haptics frame"!
+     */
+    void update_calibration(HDint style);
 
     /*!
      * \brief Get the button states of the device.

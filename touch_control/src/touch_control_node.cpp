@@ -38,14 +38,49 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rosidl_runtime_cpp/message_initialization.hpp"
 
+#include <chrono>
+#include <exception>
+#include <algorithm>
+#include <iterator>
 #include <range/v3/view/zip.hpp>
 #include <boost/circular_buffer.hpp>
 #include <boost/math/constants/constants.hpp>
+#include <stdexcept>
 #include <thread>
 
 namespace touch_control {
 
 using boost::math::double_constants::pi;
+
+namespace {
+
+HDint choose_calibration_style(HDint supported_styles)
+{
+    if (supported_styles & HD_CALIBRATION_AUTO)
+        return HD_CALIBRATION_AUTO;
+    if (supported_styles & HD_CALIBRATION_INKWELL)
+        return HD_CALIBRATION_INKWELL;
+    if (supported_styles & HD_CALIBRATION_ENCODER_RESET)
+        return HD_CALIBRATION_ENCODER_RESET;
+
+    throw std::runtime_error("haptic device does not report a supported calibration style");
+}
+
+const char* calibration_style_name(HDint style)
+{
+    switch (style) {
+    case HD_CALIBRATION_AUTO:
+        return "HD_CALIBRATION_AUTO";
+    case HD_CALIBRATION_INKWELL:
+        return "HD_CALIBRATION_INKWELL";
+    case HD_CALIBRATION_ENCODER_RESET:
+        return "HD_CALIBRATION_ENCODER_RESET";
+    default:
+        return "unknown";
+    }
+}
+
+} // namespace
 
 geometry_msgs::msg::Pose pose_msg(const hd::Transform& tf)
 {
@@ -158,6 +193,7 @@ public:
                      bool publish_joint_states)
         : node_(node)
         , device_(device_name)
+        , device_name_(device_name)
         , filter_(scheduler_rate_hz)
         , dt_(1.0 / scheduler_rate_hz)
     {
@@ -181,13 +217,80 @@ public:
 
         if (publish_joint_states)
             pub_joints_ = node->create_publisher<sensor_msgs::msg::JointState>(ns + "joint_states", 1);
-
-        device_.set_force_enabled(true);
     }
 
-    ~DeviceController()
+    ~DeviceController() noexcept
     {
-        device_.set_force_enabled(false);
+        try {
+            device_.set_force_enabled(false);
+        } catch (const std::exception& e) {
+            RCLCPP_WARN(
+                node_->get_logger(),
+                "[%s] Failed to disable force output during shutdown: %s",
+                device_name_.c_str(),
+                e.what());
+        }
+    }
+
+    void calibrate()
+    {
+        hd::ScopedFrame frame(device_);
+
+        const auto supported_styles = device_.supported_calibration_styles();
+        const auto calibration_style = choose_calibration_style(supported_styles);
+        RCLCPP_INFO(
+            node_->get_logger(),
+            "[%s] Selected calibration style: %s",
+            device_name_.c_str(),
+            calibration_style_name(calibration_style));
+
+        HDint last_status = -1;
+
+        while (rclcpp::ok()) {
+            const auto status = device_.calibration_status();
+
+            if (status == HD_CALIBRATION_OK) {
+                filter_.reset(hd::Vector6d::Zero());
+                wrench_cmd_.setZero();
+                device_.set_force_enabled(true);
+                RCLCPP_INFO(node_->get_logger(), "[%s] Calibration complete.", device_name_.c_str());
+                return;
+            }
+
+            if (status != last_status) {
+                if (status == HD_CALIBRATION_NEEDS_MANUAL_INPUT) {
+                    RCLCPP_INFO(
+                        node_->get_logger(),
+                        "[%s] Please place the device into the inkwell for calibration.",
+                        device_name_.c_str());
+                } else if (status == HD_CALIBRATION_NEEDS_UPDATE) {
+                    RCLCPP_INFO(
+                        node_->get_logger(),
+                        "[%s] Calibration update required.",
+                        device_name_.c_str());
+                } else {
+                    RCLCPP_ERROR(
+                        node_->get_logger(),
+                        "[%s] Unexpected calibration status: %d",
+                        device_name_.c_str(),
+                        status);
+                    throw std::runtime_error("[" + device_name_ + "] Unknown calibration status");
+                }
+                last_status = status;
+            }
+
+            if (status == HD_CALIBRATION_NEEDS_UPDATE) {
+                device_.update_calibration(calibration_style);
+            }
+
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+
+        RCLCPP_WARN(
+            node_->get_logger(),
+            "[%s] Calibration interrupted while ROS is shutting down",
+            device_name_.c_str());
+        throw std::runtime_error("[" + device_name_ + "] Calibration interrupted while ROS is shutting down");
     }
 
     void handle_wrench_command(const geometry_msgs::msg::WrenchStamped::UniquePtr wrench)
@@ -295,6 +398,7 @@ public:
 private:
     rclcpp::Node* node_;
     hd::Device device_;
+    std::string device_name_;
     ButterworthLowpassFilter3<hd::Vector6d> filter_;
     double dt_;
     std::string base_frame_name_;
@@ -321,6 +425,24 @@ public:
         for (auto [name, prefix] : ranges::views::zip(device_names, prefixes))
             device_controllers_.emplace_back(this, name, prefix, scheduler_rate_hz, publish_joint_states);
 
+        scheduler_.start(scheduler_rate_hz);
+
+        for (auto& dc : device_controllers_) {
+            std::exception_ptr calibration_error;
+            auto* controller = &dc;
+
+            scheduler_.schedule_synchronous([controller, &calibration_error]() {
+                try {
+                    controller->calibrate();
+                } catch (...) {
+                    calibration_error = std::current_exception();
+                }
+            });
+
+            if (calibration_error)
+                std::rethrow_exception(calibration_error);
+        }
+
         // Continuously publish device states from the "haptics loop" thread
         for (auto& dc : device_controllers_) {
             scheduler_.schedule_asynchronous([&dc]() {
@@ -328,8 +450,6 @@ public:
                 return rclcpp::ok();
             });
         }
-
-        scheduler_.start(scheduler_rate_hz);
     }
 
 private:
