@@ -421,26 +421,29 @@ public:
         auto prefixes = declare_parameter<std::vector<std::string>>("prefixes", {""});
         auto scheduler_rate_hz = declare_parameter<int>("scheduler_rate", 1000);
         auto publish_joint_states = declare_parameter<bool>("publish_joint_states", false);
+        auto calibrate_devices = declare_parameter<bool>("calibrate_devices", false);
 
         for (auto [name, prefix] : ranges::views::zip(device_names, prefixes))
             device_controllers_.emplace_back(this, name, prefix, scheduler_rate_hz, publish_joint_states);
 
         scheduler_.start(scheduler_rate_hz);
 
-        for (auto& dc : device_controllers_) {
-            std::exception_ptr calibration_error;
-            auto* controller = &dc;
+        if (calibrate_devices) {
+            for (auto& dc : device_controllers_) {
+                std::exception_ptr calibration_error;
+                auto* controller = &dc;
 
-            scheduler_.schedule_synchronous([controller, &calibration_error]() {
-                try {
-                    controller->calibrate();
-                } catch (...) {
-                    calibration_error = std::current_exception();
-                }
-            });
+                scheduler_.schedule_synchronous([controller, &calibration_error]() {
+                    try {
+                        controller->calibrate();
+                    } catch (...) {
+                        calibration_error = std::current_exception();
+                    }
+                });
 
-            if (calibration_error)
-                std::rethrow_exception(calibration_error);
+                if (calibration_error)
+                    std::rethrow_exception(calibration_error);
+            }
         }
 
         // Continuously publish device states from the "haptics loop" thread
