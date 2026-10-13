@@ -1,7 +1,9 @@
-# Touch
+# Touch Haptics ROS2
 
 ROS packages for interfacing with 3D Systems Touch haptic devices.
 
+This project is a fork of the Touch package, available at https://gitlab.com/sdurobotics/medical/touch
+Notable differences between this package and the original are the addition of force feedback support and some small under-the-hood logic improvements.
 
 ## The Touch base coordinate system
 
@@ -9,11 +11,9 @@ ROS packages for interfacing with 3D Systems Touch haptic devices.
 - Up is +Y.
 - Toward user is +Z.
 
-
 ## Driver / SDK download
 
 https://support.3dsystems.com/s/article/OpenHaptics-for-Linux-Developer-Edition-v34
-
 
 ## Ubuntu Jammy Docker container
 
