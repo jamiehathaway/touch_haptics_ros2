@@ -3,7 +3,13 @@
 ROS packages for interfacing with 3D Systems Touch haptic devices.
 
 This project is a fork of the Touch package, available at https://gitlab.com/sdurobotics/medical/touch
+
 Notable differences between this package and the original are the addition of force feedback support and some small under-the-hood logic improvements.
+
+> [!NOTE]
+> This repository is updated on a "when I feel like it" basis. I make no guarantee this code will work. Always check before running code on real hardware. Nonetheless, I hope this code is useful to those who wish to learn from it.
+> 
+> Contributions / issues are welcome but I reserve sole discretion for implementing any changes.
 
 ## The Touch base coordinate system
 
@@ -14,27 +20,3 @@ Notable differences between this package and the original are the addition of fo
 ## Driver / SDK download
 
 https://support.3dsystems.com/s/article/OpenHaptics-for-Linux-Developer-Edition-v34
-
-## Ubuntu Jammy Docker container
-
-We have experienced issues with the Touch devices on Ubuntu Jammy (22.04). The 3D Systems drivers are not officially supported on Jammy. Thus we provide the means to run `touch_control` nodes in a Docker container based on Ubuntu Focal (20.04) with ROS2 Foxy.
-
-The `docker/fastrtps_profile.xml` forces UDP communication (instead of shared memory) from inside the container.
-
-The 3D Systems config directory is shared with the host and so the device may be configured by running `Touch_Setup` on either the host or container.
-
-Build Docker image:
-
-```
-docker build -t touch-focal -f docker/Dockerfile .
-```
-
-Run `Touch_Setup` configuration program (a Qt GUI application):
-```
-docker run -e "DISPLAY=$DISPLAY" -v "$HOME/.Xauthority:/root/.Xauthority:ro" -v $GTDD_HOME:/root/.3dsystems --network host touch-focal Touch_Setup
-```
-
-Launch ROS2 nodes:
-```
-docker run -it --network host -v $GTDD_HOME:/root/.3dsystems touch-focal ros2 launch touch_control two_devices.launch.py
-```
